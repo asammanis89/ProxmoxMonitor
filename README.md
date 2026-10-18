@@ -1,83 +1,81 @@
 # Proxmox Monitor
 
-Dashboard web untuk memantau node Proxmox VE: CPU, RAM, penyimpanan, daftar VM, backup, konsol VM, dan pembuatan VM dari template. Dibuat sebagai alat internal tim NOC agar angka yang tampil lebih jelas daripada tampilan bawaan Proxmox, terutama pemisahan **RAM asli vs cache**.
+Dashboard web untuk memantau server Proxmox: CPU, RAM, penyimpanan, daftar VM, backup, konsol VM, dan pembuatan VM baru dari template. Dibuat untuk tim NOC.
 
-> **Repo ini berisi studi kasus, bukan kode sumber.** Proyek ini dipakai di lingkungan kerja dan terhubung ke server produksi, jadi kodenya tidak dipublikasikan. Semua tangkapan layar di bawah diambil dari server Proxmox tiruan dengan data fiktif; tidak ada data server sungguhan.
+> Repo ini berisi studi kasus, bukan kode sumber. Proyek ini dipakai di lingkungan kerja dan terhubung ke server produksi, jadi kodenya tidak dipublikasikan. Semua gambar diambil dari server Proxmox tiruan dengan data fiktif. Tidak ada data server sungguhan di sini.
+
+![Dashboard](docs/screenshots/03-dashboard-terang.png)
+
+## Kenapa dibuat
+
+Di tampilan bawaan Proxmox, VM yang aplikasinya ringan sering terlihat memakai RAM 80 sampai 90 persen. Angka itu ikut menghitung cache di dalam VM, bukan memori yang benar-benar dipakai aplikasi. Hasilnya, orang yang memantau jadi sering mengira server hampir penuh padahal masih longgar.
+
+Dashboard ini saya buat supaya angka yang tampil bisa dipercaya, dan supaya hal yang paling sering dikerjakan tim NOC (cek VM, cek backup, buka konsol, bikin VM baru) ada di satu halaman yang sederhana.
+
+## Apa yang jadi lebih mudah
+
+- **RAM yang jujur.** Memori yang dipakai aplikasi dipisahkan dari cache. Kalau VM belum bisa melaporkannya, tertulis "tidak diketahui", bukan angka tebakan.
+- **Semua VM dalam satu tabel**, lengkap dengan IP, pemakaian, dan warna peringatan saat memori hampir penuh.
+- **Buat VM tanpa bentrok IP.** Alamat yang diminta diperiksa dulu terhadap VM yang ada dan dengan ping. Kalau sudah dipakai, pembuatan berhenti sebelum ada yang dibuat.
+- **Cek backup sekilas.** Kelihatan VM mana yang belum punya cadangan dan sisa kapasitas penyimpanan.
+- **Konsol VM langsung di browser**, tanpa membuka antarmuka Proxmox.
 
 ## Tampilan
 
-| Login terang | Login gelap |
+### Masuk, dengan dua tema
+
+| Terang | Gelap |
 |---|---|
 | ![Login terang](docs/screenshots/01-login-terang.png) | ![Login gelap](docs/screenshots/01-login-gelap.png) |
 
-| Dashboard terang | Dashboard gelap |
+Halaman login memberi pesan jelas kalau password salah, dan tema mengikuti pengaturan sistem atau pilihan manual.
+
+![Login salah](docs/screenshots/02-login-salah.png)
+
+### Dashboard
+
+| Terang | Gelap |
 |---|---|
 | ![Dashboard terang](docs/screenshots/03-dashboard-terang.png) | ![Dashboard gelap](docs/screenshots/03-dashboard-gelap.png) |
 
-| Manajemen backup | Buat VM dari template |
+Bagian atas menampilkan CPU, RAM, swap, penyimpanan, load, dan uptime node, yang diperbarui otomatis. Di bawahnya daftar VM dengan status, IP, pemakaian CPU dan memori, serta lama berjalan. Bisa dicari dan difilter, dan tombol start, stop, reboot, serta konsol ada di tiap baris.
+
+![Dashboard dengan banyak VM](docs/screenshots/03b-dashboard-penuh.png)
+
+### Backup
+
+| Terang | Gelap |
 |---|---|
-| ![Backup](docs/screenshots/04-backup-terang.png) | ![Buat VM](docs/screenshots/05-buat-vm.png) |
+| ![Backup terang](docs/screenshots/04-backup-terang.png) | ![Backup gelap](docs/screenshots/04-backup-gelap.png) |
 
-Login juga menampilkan pesan bila password salah ([gambar](docs/screenshots/02-login-salah.png)), dan tampilannya menyesuaikan layar HP ([gambar](docs/screenshots/06-mobile.png)).
+Daftar file backup per VM, kapasitas penyimpanan, dan tombol cadangan baru. Cadangan dibuat dalam mode snapshot, jadi VM tetap berjalan selama dicadangkan.
 
-## Masalah yang dipecahkan
+### Buat VM dari template
 
-Proxmox menampilkan pemakaian RAM VM dari proses QEMU di host. Angka itu ikut menghitung page cache di dalam guest, sehingga VM dengan aplikasi ringan tetap terlihat terpakai 80-90%. Dashboard ini membaca data balloon dari dalam guest untuk memisahkan RAM yang benar-benar dipakai dari cache. Bila VM belum mengaktifkan Ballooning Device atau QEMU Guest Agent, dashboard menulis "tidak diketahui" dan tidak menampilkan angka tebakan.
+![Buat VM](docs/screenshots/05-buat-vm.png)
 
-## Cara kerja
+Isi nama, CPU, RAM, disk, dan alamat IP. Sistem memeriksa isian dan IP, lalu menggandakan template, mengatur jaringan dan cloud-init, memperbesar disk, dan menyalakannya.
+
+### Di ponsel
+
+![Mobile](docs/screenshots/06-mobile.png)
+
+## Cara kerjanya
 
 ```mermaid
 flowchart LR
-  B[Browser] -- login, cookie sesi --> S[Server Node.js]
-  S -- API token --> P[(Proxmox VE)]
-  S -. relay WebSocket .-> P
-  B <-. konsol VM .-> S
+  B[Browser] -->|login| S[Server Node.js]
+  S -->|API token| P[(Proxmox VE)]
+  B <-.->|konsol VM| S
 ```
 
-Browser tidak pernah bicara langsung ke Proxmox. Semua permintaan lewat server, yang memeriksa sesi login lalu memanggil API Proxmox dengan token.
+Browser tidak pernah bicara langsung ke Proxmox. Semua lewat server, yang memeriksa login dulu lalu memanggil Proxmox dengan API token, jadi akun Proxmox sendiri tidak pernah ada di browser.
 
-**RAM asli vs cache.** Untuk tiap VM, server membaca status terkini dari Proxmox. Jika VM melaporkan data balloon, RAM terpakai dihitung dari memori total dikurangi memori bebas di dalam guest. Selisihnya dengan angka bawaan Proxmox ditampilkan sebagai cache. Jika data itu tidak ada, kolomnya menulis "tidak diketahui".
-
-**Konsol VM.** Server meminta tiket konsol ke Proxmox, menukarnya dengan id acak yang hanya berlaku satu kali dan satu menit, lalu membuka WebSocket ke Proxmox dan meneruskan datanya ke browser. Jadi tiket Proxmox tidak bisa dipakai ulang atau ditebak dari URL.
-
-**Buat VM.** Isian divalidasi dulu. Alamat IP yang diminta diperiksa terhadap IP milik semua VM dan dengan ping, lalu template di-clone, diatur (CPU, RAM, jaringan, cloud-init), diperbesar disknya, dan dinyalakan. Jika IP sudah terpakai, pembuatan berhenti sebelum ada yang dibuat.
-
-**Peta IP.** Pemakaian rentang IP dibangun dari IP yang diketahui Proxmox ditambah hasil ping ke sisa alamat, lalu disimpan sebentar supaya halaman tidak memicu pemindaian berulang.
-
-**Backup.** Daftar berkas dan kapasitas penyimpanan dibaca dari Proxmox. Cadangan baru dibuat dalam mode snapshot dengan kompresi zstd, jadi VM tetap berjalan selama dicadangkan. Jadwal otomatis tidak dibuat di dashboard ini.
-
-## Fitur
-
-- **Ringkasan node**: CPU, RAM, swap, penyimpanan, load, dan uptime, diperbarui otomatis tiap beberapa detik.
-- **Daftar VM**: status, alamat IP, pemakaian CPU dan memori, lama berjalan, pencarian, dan filter. VM yang memori-nya di atas 80% atau 90% diberi warna peringatan.
-- **Kontrol VM**: start, stop, shutdown, reboot, dan konsol di browser (noVNC). Browser tidak pernah bicara langsung ke Proxmox; server meneruskan koneksi memakai API token.
-- **Backup**: daftar file backup per VM, kapasitas penyimpanan, cakupan (VM mana yang belum punya backup), dan tombol cadangan baru.
-- **Buat VM**: dari template cloud-init (IP statis, user, SSH key) atau VM kosong dengan ISO. Sebelum membuat, IP diperiksa terhadap VM yang ada dan dengan ping, supaya tidak bentrok.
-- **Peta IP**: pemakaian satu rentang jaringan VM, dari data Proxmox ditambah hasil ping.
-- **Hapus VM** dengan konfirmasi eksplisit, dan hanya untuk VM yang sudah mati.
-- **Tema terang dan gelap**, mengikuti sistem atau pilihan manual.
-
-## Keamanan
-
-- Semua halaman, API, dan konsol butuh login; hanya halaman login yang terbuka. Sesi berlaku 12 jam dengan cookie `HttpOnly` dan `SameSite=Lax`.
-- Password dibandingkan dengan `timingSafeEqual`, dan login yang salah diperlambat satu detik.
-- Akses ke Proxmox memakai API token, bukan akun penuh. Rahasia hanya ada di `.env` yang tidak masuk repo.
-- Input yang dirangkai ke opsi Proxmox (storage, bridge, ISO, IP, gateway) divalidasi, dan tanda koma ditolak untuk mencegah penyisipan opsi.
+Untuk RAM, server membaca data memori dari dalam VM. Memori terpakai dihitung dari total dikurangi yang bebas di dalam VM, dan selisihnya dengan angka bawaan Proxmox ditampilkan sebagai cache. Untuk konsol, server menukar tiket Proxmox dengan kode acak yang hanya berlaku satu kali dan satu menit, sehingga tidak bisa dipakai ulang.
 
 ## Teknologi
 
-Node.js 20+, Express 4, `ws` untuk relay konsol, API REST Proxmox VE 8, HTML dan JavaScript biasa dengan Tailwind CSS, noVNC untuk konsol. Desain dibuat dengan Google Stitch lalu dipindahkan ke komponen dengan token warna terpusat untuk dua tema. Tanpa database: riwayat grafik memakai RRD bawaan Proxmox.
-
-## Pengujian
-
-Ada tes untuk ambang peringatan, peta IP, pemetaan tombol tempel ke konsol, serta validasi cloud-init dan nama VM.
-
-## Belum dibuat (sengaja)
-
-- Riwayat jangka panjang di database; RRD Proxmox sudah cukup untuk kebutuhan sekarang.
-- HTTPS; dashboard dipakai di LAN, dan cookie login perlu reverse proxy dengan sertifikat bila dibuka di luar LAN.
-- Restore dari backup; lebih aman lewat antarmuka Proxmox.
-- Banyak node; semua endpoint terikat ke satu node.
+Node.js, Express, API Proxmox VE 8, HTML dan JavaScript biasa dengan Tailwind CSS, noVNC untuk konsol. Desain awal dibuat dengan Google Stitch. Tidak memakai database, karena grafik riwayat diambil dari data bawaan Proxmox.
 
 ## Kontak
 
