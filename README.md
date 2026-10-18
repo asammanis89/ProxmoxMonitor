@@ -24,6 +24,28 @@ Login juga menampilkan pesan bila password salah ([gambar](docs/screenshots/02-l
 
 Proxmox menampilkan pemakaian RAM VM dari proses QEMU di host. Angka itu ikut menghitung page cache di dalam guest, sehingga VM dengan aplikasi ringan tetap terlihat terpakai 80-90%. Dashboard ini membaca data balloon dari dalam guest untuk memisahkan RAM yang benar-benar dipakai dari cache. Bila VM belum mengaktifkan Ballooning Device atau QEMU Guest Agent, dashboard menulis "tidak diketahui" dan tidak menampilkan angka tebakan.
 
+## Cara kerja
+
+```mermaid
+flowchart LR
+  B[Browser] -- login, cookie sesi --> S[Server Node.js]
+  S -- API token --> P[(Proxmox VE)]
+  S -. relay WebSocket .-> P
+  B <-. konsol VM .-> S
+```
+
+Browser tidak pernah bicara langsung ke Proxmox. Semua permintaan lewat server, yang memeriksa sesi login lalu memanggil API Proxmox dengan token.
+
+**RAM asli vs cache.** Untuk tiap VM, server membaca status terkini dari Proxmox. Jika VM melaporkan data balloon, RAM terpakai dihitung dari memori total dikurangi memori bebas di dalam guest. Selisihnya dengan angka bawaan Proxmox ditampilkan sebagai cache. Jika data itu tidak ada, kolomnya menulis "tidak diketahui".
+
+**Konsol VM.** Server meminta tiket konsol ke Proxmox, menukarnya dengan id acak yang hanya berlaku satu kali dan satu menit, lalu membuka WebSocket ke Proxmox dan meneruskan datanya ke browser. Jadi tiket Proxmox tidak bisa dipakai ulang atau ditebak dari URL.
+
+**Buat VM.** Isian divalidasi dulu. Alamat IP yang diminta diperiksa terhadap IP milik semua VM dan dengan ping, lalu template di-clone, diatur (CPU, RAM, jaringan, cloud-init), diperbesar disknya, dan dinyalakan. Jika IP sudah terpakai, pembuatan berhenti sebelum ada yang dibuat.
+
+**Peta IP.** Pemakaian rentang IP dibangun dari IP yang diketahui Proxmox ditambah hasil ping ke sisa alamat, lalu disimpan sebentar supaya halaman tidak memicu pemindaian berulang.
+
+**Backup.** Daftar berkas dan kapasitas penyimpanan dibaca dari Proxmox. Cadangan baru dibuat dalam mode snapshot dengan kompresi zstd, jadi VM tetap berjalan selama dicadangkan. Jadwal otomatis tidak dibuat di dashboard ini.
+
 ## Fitur
 
 - **Ringkasan node**: CPU, RAM, swap, penyimpanan, load, dan uptime, diperbarui otomatis tiap beberapa detik.
